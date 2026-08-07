@@ -1,0 +1,20 @@
+# Environments
+.env
+.venv
+env/
+venv/
+ai_voice_env/
+
+# Python
+__pycache__/
+*.pyc
+*.pyo
+
+# Audio Outputs (Keep reference files in references/, ignore generated ones)
+output/*.wav
+output/*.mp3
+!references/*.wav
+!references/*.mp3
+
+# OS Files
+.DS_Store
