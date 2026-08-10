@@ -152,6 +152,7 @@ async def generate_audio(
                 text=s,
                 speaker_wav=reference_speaker_wav,
                 language="en",
+                speed=1.2,
                 file_path=tf
             )
         )
