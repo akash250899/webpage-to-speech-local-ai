@@ -3,11 +3,15 @@ XTTSv2 Speech Synthesis Engine
 """
 
 import asyncio
+import logging
 import os
 import re
 import shutil
+
 import torch
 from pydub import AudioSegment
+
+logger = logging.getLogger(__name__)
 
 # Coqui TOS agreement
 os.environ["COQUI_TOS_AGREED"] = "1"
@@ -17,7 +21,7 @@ try:
     from TTS.tts.configs.xtts_config import XttsConfig
     torch.serialization.add_safe_globals([XttsConfig])
 except Exception:
-    pass
+    logger.exception("Failed to register XttsConfig as a safe global for torch.load")
 
 _orig_torch_load = torch.load
 def _safe_torch_load(*args, **kwargs):
@@ -31,10 +35,10 @@ OUTPUT_DIR = "output"
 os.makedirs(OUTPUT_DIR, exist_ok=True)
 
 # Global XTTSv2 model initialization
-print("[Global Model Loader] Loading Coqui XTTSv2 model globally...")
+logger.info("Loading Coqui XTTSv2 model globally...")
 from TTS.api import TTS
 global_tts_model = TTS("tts_models/multilingual/multi-dataset/xtts_v2", gpu=False)
-print("[Global Model Loader] Coqui XTTSv2 model loaded successfully!")
+logger.info("Coqui XTTSv2 model loaded successfully!")
 
 
 def get_tts_model():
@@ -68,15 +72,17 @@ def ensure_reference_audio(voice: str = "female") -> str:
             try:
                 if not os.path.exists(target_wav) or os.path.getmtime(mp3_source) > os.path.getmtime(target_wav):
                     import librosa, soundfile as sf
-                    print(f"[Audio Generator] Converting '{mp3_source}' -> '{target_wav}' for male voice cloning...")
+                    logger.info("Converting reference audio | source=%s -> target=%s", mp3_source, target_wav)
                     data, sr = librosa.load(mp3_source, sr=None)
                     sf.write(target_wav, data, sr)
             except Exception as e:
-                print(f"[Audio Generator] Librosa MP3 conversion error: {e}")
+                logger.exception("Librosa MP3 conversion failed | source=%s | error=%s", mp3_source, e)
 
         if os.path.exists(target_wav):
+            logger.debug("Using male reference audio | path=%s", target_wav)
             return target_wav
         elif os.path.exists(os.path.join(REF_DIR, "reference_voice.wav")):
+            logger.debug("Using generic reference audio as male fallback | path=%s", os.path.join(REF_DIR, "reference_voice.wav"))
             return os.path.join(REF_DIR, "reference_voice.wav")
     else:
         # Female Voice
@@ -84,13 +90,16 @@ def ensure_reference_audio(voice: str = "female") -> str:
         ref_source = os.path.join(REF_DIR, "reference_voice.wav")
 
         if os.path.exists(fem_target):
+            logger.debug("Using female reference audio | path=%s", fem_target)
             return fem_target
         elif os.path.exists(ref_source):
             shutil.copy(ref_source, fem_target)
+            logger.info("Copied generic reference to female target | source=%s -> target=%s", ref_source, fem_target)
             return fem_target
 
     for fallback in [os.path.join(REF_DIR, "female_ref.wav"), os.path.join(REF_DIR, "reference_voice.wav"), "female_ref.wav", "reference_voice.wav"]:
         if os.path.exists(fallback):
+            logger.debug("Using fallback reference audio | path=%s", fallback)
             return fallback
 
     raise FileNotFoundError(f"No reference audio file found in '{REF_DIR}' directory.")
@@ -103,6 +112,7 @@ async def generate_audio(
     output_filename: str = None
 ) -> str:
     if not paragraphs:
+        logger.warning("generate_audio called with no paragraphs")
         return ""
 
     if reference_speaker_wav is None:
@@ -140,12 +150,18 @@ async def generate_audio(
             else:
                 sentence_chunks.append(s_clean)
 
+    logger.info(
+        "Audio generation started | voice=%s | reference=%s | sentence_chunks=%s | output=%s",
+        voice, reference_speaker_wav, len(sentence_chunks), output_filename
+    )
+
     tts = get_tts_model()
-    loop = asyncio.get_event_loop()
+    loop = asyncio.get_running_loop()
 
     temp_files = []
     for idx, sentence in enumerate(sentence_chunks):
         temp_file = os.path.join(OUTPUT_DIR, f"temp_{idx}.wav")
+        logger.debug("Synthesizing chunk | idx=%s/%s | chars=%s", idx + 1, len(sentence_chunks), len(sentence))
         await loop.run_in_executor(
             None,
             lambda s=sentence, tf=temp_file: tts.tts_to_file(
@@ -167,14 +183,20 @@ async def generate_audio(
             if idx > 0:
                 combined_audio += silence
             combined_audio += segment
+        else:
+            logger.warning("Temp chunk missing during assembly | idx=%s | path=%s", idx, temp_file)
 
     combined_audio.export(output_filename, format="wav")
+    logger.info(
+        "Audio assembled | output=%s | duration_s=%s | chunks=%s",
+        output_filename, round(combined_audio.duration_seconds, 2), len(temp_files)
+    )
 
     for temp_file in temp_files:
         if os.path.exists(temp_file):
             try:
                 os.remove(temp_file)
-            except Exception:
-                pass
+            except Exception as e:
+                logger.warning("Failed to remove temp file | path=%s | error=%s", temp_file, e)
 
     return output_filename

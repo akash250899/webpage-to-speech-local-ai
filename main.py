@@ -2,12 +2,21 @@
 Local WebToSpeech AI Server Entry Point
 """
 
+import logging
+
+import uvicorn
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
-import uvicorn
+
+from core.logging import setup_logging
+
+# Configure logging first so module-level model loads are captured
+setup_logging()
 
 from api.routes import router
+
+logger = logging.getLogger(__name__)
 
 app = FastAPI(
     title="WebToSpeech AI Pipeline",
@@ -31,4 +40,5 @@ app.mount("/", StaticFiles(directory="static", html=True), name="static")
 
 
 if __name__ == "__main__":
-    uvicorn.run(app, host="0.0.0.0", port=8000)
+    logger.info("Starting WebToSpeech AI Pipeline on http://0.0.0.0:8000")
+    uvicorn.run(app, host="0.0.0.0", port=8000, log_config=None)

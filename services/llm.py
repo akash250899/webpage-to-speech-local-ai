@@ -4,9 +4,13 @@ Local LLM Text Processing Service with Dynamic Pronunciation Glossary
 
 import asyncio
 import json
+import logging
 import os
 import re
+
 import requests
+
+logger = logging.getLogger(__name__)
 
 LLM_ENDPOINT = "http://localhost:1234/v1/chat/completions"
 LLM_MODELS_ENDPOINT = "http://localhost:1234/v1/models"
@@ -18,9 +22,12 @@ def load_glossary() -> dict:
     if os.path.exists(GLOSSARY_PATH):
         try:
             with open(GLOSSARY_PATH, "r", encoding="utf-8") as f:
-                return json.load(f)
+                glossary = json.load(f)
+                logger.debug("Loaded glossary | entries=%s | path=%s", len(glossary), GLOSSARY_PATH)
+                return glossary
         except Exception:
-            pass
+            logger.exception("Failed to load glossary from %s, using defaults", GLOSSARY_PATH)
+    logger.debug("Glossary file missing, using defaults | path=%s", GLOSSARY_PATH)
     return {
         "EDA": "Electronic Design Automation",
         "CPU": "Central Processing Unit",
@@ -38,12 +45,13 @@ def get_active_llm_model() -> str:
             if data:
                 return data[0]["id"]
     except Exception:
-        pass
+        logger.warning("Could not reach LLM models endpoint %s", LLM_MODELS_ENDPOINT)
     return "local-model"
 
 
 async def process_text_for_speech(text: str, max_chunks: int = None, use_llm: bool = False) -> list[str]:
     if not text or not text.strip():
+        logger.warning("process_text_for_speech called with empty text")
         return []
 
     glossary = load_glossary()
@@ -53,6 +61,7 @@ async def process_text_for_speech(text: str, max_chunks: int = None, use_llm: bo
     paragraphs = [p for p in raw_paragraphs if len(p) >= 15] or raw_paragraphs
 
     if max_chunks is not None and len(paragraphs) > max_chunks:
+        logger.debug("Limiting paragraphs | before=%s | max_chunks=%s", len(paragraphs), max_chunks)
         paragraphs = paragraphs[:max_chunks]
 
     # Phase 1: Deterministic Glossary Replacement & Surface Normalization
@@ -68,12 +77,16 @@ async def process_text_for_speech(text: str, max_chunks: int = None, use_llm: bo
 
         # Default surface normalizations
         cleaned = re.sub(r"\bAI\b", "artificial intelligence", cleaned)
-        cleaned = re.sub(r"\b2 GHz\b", "two gigahertz", cleaned)
+        cleaned = re.sub(r"\b2\u202fGHz\b", "two gigahertz", cleaned)
         cleaned = re.sub(r"\b2 GHz\b", "two gigahertz", cleaned)
         cleaned = re.sub(r"\be\.g\.\b", "for example", cleaned)
         preprocessed_paragraphs.append(cleaned.strip())
 
     if not use_llm:
+        logger.info(
+            "Text processed without LLM | paragraphs=%s | chars=%s",
+            len(preprocessed_paragraphs), sum(len(p) for p in preprocessed_paragraphs)
+        )
         return preprocessed_paragraphs
 
     # Phase 2: System Prompt Injection with Technical Glossary
@@ -85,8 +98,13 @@ async def process_text_for_speech(text: str, max_chunks: int = None, use_llm: bo
     )
 
     model_name = get_active_llm_model()
+    logger.info(
+        "Processing text with LLM | model=%s | endpoint=%s | paragraphs=%s",
+        model_name, LLM_ENDPOINT, len(preprocessed_paragraphs)
+    )
     processed_paragraphs = []
-    loop = asyncio.get_event_loop()
+    fallback_count = 0
+    loop = asyncio.get_running_loop()
 
     for idx, chunk in enumerate(preprocessed_paragraphs):
         payload = {
@@ -108,8 +126,16 @@ async def process_text_for_speech(text: str, max_chunks: int = None, use_llm: bo
             if cleaned_paragraph:
                 processed_paragraphs.append(cleaned_paragraph)
             else:
+                logger.warning("LLM returned empty content for paragraph | idx=%s | falling back to raw chunk", idx)
+                fallback_count += 1
                 processed_paragraphs.append(chunk)
-        except Exception:
+        except Exception as exc:
+            logger.exception("LLM request failed | idx=%s | error=%s", idx, exc)
+            fallback_count += 1
             processed_paragraphs.append(chunk)
 
+    logger.info(
+        "Text processed with LLM | paragraphs=%s | fallbacks=%s",
+        len(processed_paragraphs), fallback_count
+    )
     return processed_paragraphs

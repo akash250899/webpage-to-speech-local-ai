@@ -3,10 +3,14 @@ Web Scraping Service
 """
 
 import asyncio
+import logging
 import re
+
 import requests
-from urllib.parse import urlparse
 from bs4 import BeautifulSoup
+from urllib.parse import urlparse
+
+logger = logging.getLogger(__name__)
 
 
 def get_filename_from_url(url: str, voice: str = "female") -> str:
@@ -39,13 +43,16 @@ async def scrape_article(url: str) -> str:
         )
     }
 
+    logger.info("Fetching URL | url=%s", url)
     try:
-        loop = asyncio.get_event_loop()
+        loop = asyncio.get_running_loop()
         response = await loop.run_in_executor(
             None, lambda: requests.get(url, headers=headers, timeout=10)
         )
         response.raise_for_status()
+        logger.debug("Fetched URL | url=%s | status=%s | bytes=%s", url, response.status_code, len(response.content))
     except requests.RequestException as e:
+        logger.error("Failed to fetch URL | url=%s | error=%s", url, e)
         raise RuntimeError(f"Failed to fetch content from URL: {e}") from e
 
     soup = BeautifulSoup(response.text, "html.parser")
@@ -125,9 +132,11 @@ async def scrape_article(url: str) -> str:
             extracted_chunks.append(text)
 
     if not extracted_chunks:
+        logger.warning("No content extracted via targeted selectors | url=%s | falling back to generic extraction", url)
         for elem in article_container.find_all(target_tags):
             text = elem.get_text(strip=True)
             if text and len(text) > 15:
                 extracted_chunks.append(text)
 
+    logger.info("Extracted article content | url=%s | chunks=%s | chars=%s", url, len(extracted_chunks), sum(len(c) for c in extracted_chunks))
     return "\n\n".join(extracted_chunks)
