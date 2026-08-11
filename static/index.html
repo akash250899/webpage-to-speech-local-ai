@@ -353,12 +353,8 @@
 <div class="container">
     <div class="glass-card">
         <div class="header">
-            <div class="badge">
-                <div class="badge-dot"></div>
-                Native Coqui XTTSv2 Studio
-            </div>
             <h1>Article Voice Generator</h1>
-            <p class="subtitle">Enter any article URL to synthesize an ultra-natural zero-shot spoken audio recording with male/female voice routing.</p>
+            <!-- <p class="subtitle">Enter any article URL to synthesize an ultra-natural zero-shot spoken audio recording with male/female voice routing.</p> -->
         </div>
 
         <form id="ttsForm" class="input-group" onsubmit="handleFormSubmit(event)">
@@ -379,8 +375,8 @@
                 <div style="flex: 1; display: flex; flex-direction: column; gap: 0.4rem;">
                     <label for="voiceSelect">Voice Actor Preference</label>
                     <select id="voiceSelect" style="background: rgba(10, 14, 26, 0.8); border: 1px solid rgba(255, 255, 255, 0.12); border-radius: 0.75rem; padding: 0.85rem 1.1rem; color: #fff; font-size: 0.95rem; outline: none; font-family: inherit; cursor: pointer;">
-                        <option value="female">👩 Female Voice (Distinct Studio)</option>
-                        <option value="male">👨 Male Voice (Distinct Studio)</option>
+                        <option value="female">👩 Female Voice</option>
+                        <option value="male">👨 Male Voice </option>
                     </select>
                 </div>
                 <button type="submit" id="submitBtn" class="btn-submit" style="height: 48px;">
