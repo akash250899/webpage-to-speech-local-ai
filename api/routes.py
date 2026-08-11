@@ -8,10 +8,10 @@ import os
 import uuid
 from datetime import datetime
 
-from fastapi import APIRouter, BackgroundTasks, HTTPException, Query
+from fastapi import APIRouter, HTTPException, Query
 from fastapi.responses import FileResponse
 
-from core.state import jobs
+from core.state import jobs, get_task_queue
 from api.models import RequestPayload
 from services.scraper import scrape_article, get_filename_from_url
 from services.llm import process_text_for_speech
@@ -24,36 +24,50 @@ router = APIRouter()
 GLOSSARY_PATH = os.path.join("core", "glossary.json")
 
 
-async def run_pipeline(job_id: str, url: str, voice: str = "female", max_chunks: int = None, use_llm: bool = False):
-    logger.info(
-        "Pipeline started | job_id=%s | url=%s | voice=%s | max_chunks=%s | use_llm=%s",
-        job_id, url, voice, max_chunks, use_llm
-    )
-    try:
-        extracted_text = await scrape_article(url)
-        logger.info("Pipeline stage=scrape | job_id=%s | chars=%s", job_id, len(extracted_text))
+async def process_queue():
+    """
+    Background worker loop that sequentially processes audio generation tasks from task_queue.
+    Limits execution to one task at a time to prevent high RAM/memory usage crashes.
+    """
+    logger.info("Asyncio queue worker started and awaiting tasks...")
+    task_queue = get_task_queue()
+    while True:
+        job_id, url, voice = await task_queue.get()
+        try:
+            logger.info("Worker processing job | job_id=%s | url=%s | voice=%s", job_id, url, voice)
+            jobs[job_id]["status"] = "processing"
+            jobs[job_id]["started_at"] = datetime.now().isoformat()
 
-        paragraphs = await process_text_for_speech(extracted_text, max_chunks=max_chunks, use_llm=use_llm)
-        logger.info("Pipeline stage=process | job_id=%s | paragraphs=%s", job_id, len(paragraphs))
+            max_chunks = jobs[job_id].get("max_chunks")
+            use_llm = jobs[job_id].get("use_llm", False)
 
-        filename = get_filename_from_url(url, voice)
-        output_filename = os.path.join("output", filename)
-        file_path = await generate_audio(paragraphs, voice=voice, output_filename=output_filename)
-        logger.info("Pipeline stage=tts | job_id=%s | file_path=%s", job_id, file_path)
+            extracted_text = await scrape_article(url)
+            logger.info("Pipeline stage=scrape | job_id=%s | chars=%s", job_id, len(extracted_text))
 
-        jobs[job_id]["status"] = "completed"
-        jobs[job_id]["file_path"] = file_path
-        jobs[job_id]["completed_at"] = datetime.now().isoformat()
-        jobs[job_id]["paragraph_count"] = len(paragraphs)
-        jobs[job_id]["character_count"] = len(extracted_text)
-        jobs[job_id]["voice"] = voice
-        logger.info("Pipeline completed | job_id=%s | file_path=%s", job_id, file_path)
+            paragraphs = await process_text_for_speech(extracted_text, max_chunks=max_chunks, use_llm=use_llm)
+            logger.info("Pipeline stage=process | job_id=%s | paragraphs=%s", job_id, len(paragraphs))
 
-    except Exception as err:
-        logger.exception("Pipeline failed | job_id=%s | error=%s", job_id, err)
-        jobs[job_id]["status"] = "failed"
-        jobs[job_id]["error"] = str(err)
-        jobs[job_id]["failed_at"] = datetime.now().isoformat()
+            filename = get_filename_from_url(url, voice)
+            output_filename = os.path.join("output", filename)
+            file_path = await generate_audio(paragraphs, voice=voice, output_filename=output_filename)
+            logger.info("Pipeline stage=tts | job_id=%s | file_path=%s", job_id, file_path)
+
+            jobs[job_id]["status"] = "completed"
+            jobs[job_id]["file_path"] = file_path
+            jobs[job_id]["completed_at"] = datetime.now().isoformat()
+            jobs[job_id]["paragraph_count"] = len(paragraphs)
+            jobs[job_id]["character_count"] = len(extracted_text)
+            jobs[job_id]["voice"] = voice
+            logger.info("Pipeline completed | job_id=%s | file_path=%s", job_id, file_path)
+
+        except Exception as err:
+            logger.exception("Pipeline failed | job_id=%s | error=%s", job_id, err)
+            jobs[job_id]["status"] = "failed"
+            jobs[job_id]["error"] = str(err)
+            jobs[job_id]["failed_at"] = datetime.now().isoformat()
+        finally:
+            task_queue.task_done()
+
 
 
 @router.get("/api/health")
@@ -124,33 +138,29 @@ async def process_speech_endpoint(text: str, use_llm: bool = False):
 
 
 @router.post("/generate")
-async def generate_endpoint(request: RequestPayload, background_tasks: BackgroundTasks):
+async def generate_endpoint(payload: RequestPayload):
     job_id = str(uuid.uuid4())
     jobs[job_id] = {
         "job_id": job_id,
-        "status": "processing",
-        "url": request.url,
-        "voice": request.voice,
+        "status": "queued",
+        "url": payload.url,
+        "voice": payload.voice,
+        "max_chunks": payload.max_chunks,
+        "use_llm": payload.use_llm,
         "created_at": datetime.now().isoformat(),
         "file_path": None,
         "error": None
     }
 
-    background_tasks.add_task(
-        run_pipeline,
-        job_id,
-        request.url,
-        request.voice,
-        request.max_chunks,
-        request.use_llm
-    )
+    await get_task_queue().put((job_id, payload.url, payload.voice))
 
     logger.info(
-        "Job created | job_id=%s | url=%s | voice=%s | max_chunks=%s | use_llm=%s",
-        job_id, request.url, request.voice, request.max_chunks, request.use_llm
+        "Job queued | job_id=%s | url=%s | voice=%s | max_chunks=%s | use_llm=%s",
+        job_id, payload.url, payload.voice, payload.max_chunks, payload.use_llm
     )
 
-    return {"job_id": job_id, "status": "processing", "voice": request.voice, "message": "Pipeline execution started in background"}
+    return {"job_id": job_id, "status": "queued", "voice": payload.voice, "message": "Pipeline execution queued"}
+
 
 
 @router.get("/status/{job_id}")

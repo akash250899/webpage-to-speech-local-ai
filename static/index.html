@@ -537,8 +537,15 @@
                 if (!res.ok) return;
 
                 const job = await res.json();
-                if (job.status === 'processing') {
+                if (job.status === 'queued') {
+                    statusText.innerText = `Queued in line waiting for task processing (${job.voice.toUpperCase()} Voice)...`;
+                    statusPill.className = 'status-pill processing';
+                    statusPill.innerText = 'Queued';
+                    progressBar.style.width = '10%';
+                } else if (job.status === 'processing') {
                     statusText.innerText = `Synthesizing speech with Coqui XTTSv2 (${job.voice.toUpperCase()} Voice)...`;
+                    statusPill.className = 'status-pill processing';
+                    statusPill.innerText = 'Processing';
                     progressBar.style.width = `${Math.min(90, 20 + attempts * 5)}%`;
                 } else if (job.status === 'completed') {
                     clearInterval(pollInterval);

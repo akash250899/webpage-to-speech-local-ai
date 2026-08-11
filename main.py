@@ -2,6 +2,7 @@
 Local WebToSpeech AI Server Entry Point
 """
 
+import asyncio
 import logging
 
 import uvicorn
@@ -14,7 +15,7 @@ from core.logging import setup_logging
 # Configure logging first so module-level model loads are captured
 setup_logging()
 
-from api.routes import router
+from api.routes import router, process_queue
 
 logger = logging.getLogger(__name__)
 
@@ -32,8 +33,16 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
+
+@app.on_event("startup")
+async def startup_event():
+    logger.info("Spawning asyncio queue worker task...")
+    asyncio.create_task(process_queue())
+
+
 # Include API routes
 app.include_router(router)
+
 
 # Mount static frontend directory
 app.mount("/", StaticFiles(directory="static", html=True), name="static")
