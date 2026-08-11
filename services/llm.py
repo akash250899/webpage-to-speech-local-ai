@@ -79,7 +79,7 @@ async def process_text_for_speech(text: str, max_chunks: int = None, use_llm: bo
         cleaned = re.sub(r"\bAI\b", "artificial intelligence", cleaned)
         cleaned = re.sub(r"\b2\u202fGHz\b", "two gigahertz", cleaned)
         cleaned = re.sub(r"\b2 GHz\b", "two gigahertz", cleaned)
-        cleaned = re.sub(r"\be\.g\.\b", "for example", cleaned)
+        cleaned = re.sub(r"\be\.g\.(?=[\s,;:!?)]|$)", "for example", cleaned, flags=re.IGNORECASE)
         preprocessed_paragraphs.append(cleaned.strip())
 
     if not use_llm:
