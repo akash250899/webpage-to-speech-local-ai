@@ -50,7 +50,7 @@ def health_check():
     return {
         "status": "online",
         "service": "Local TTS & Web Scraping Pipeline",
-        "environment": "Apple Silicon (Native M5)"
+        "environment": "Native Python"
     }
 
 

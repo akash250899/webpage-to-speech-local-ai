@@ -8,6 +8,5 @@
 5. **TTS Engine (`services/tts.py`):** XTTSv2 synthesizes `.wav` files per paragraph, inserting 400ms silence between chunks via PyDub, and saves to the `output/` directory.
 
 ## Hardware Context
-Designed for Apple Silicon (M-series).
 * **LLM:** Runs via LM Studio (MPS/Metal acceleration).
 * **TTS:** Runs natively in Python to access unified memory (avoiding Docker/macOS virtualization bottlenecks).

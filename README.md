@@ -1,9 +1,9 @@
 # Local Web-to-Speech AI
 
-A production-grade, fully local API that scrapes web articles, cleans them using a local LLM, and synthesizes natural audio using XTTSv2. Optimized for Apple Silicon.
+A production-grade, fully local API that scrapes web articles, cleans them using a local LLM, and synthesizes natural audio using XTTSv2.
 
 ## Prerequisites
-* macOS with Apple Silicon (M1/M2/M3/M4/M5)
+* macOS
 * Native Python 3.10+
 * [LM Studio](https://lmstudio.ai/) running locally with an 8B instruct model on port 1234.
 * `male_ref.wav` and `female_ref.wav` (3-5 second clear voice samples) in the root directory.

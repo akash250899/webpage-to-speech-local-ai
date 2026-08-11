@@ -30,8 +30,8 @@ torch.load = _safe_torch_load
 OUTPUT_DIR = "output"
 os.makedirs(OUTPUT_DIR, exist_ok=True)
 
-# Global XTTSv2 model initialization in Apple Silicon unified memory
-print("[Global Model Loader] Loading Coqui XTTSv2 model globally into M5 unified memory...")
+# Global XTTSv2 model initialization
+print("[Global Model Loader] Loading Coqui XTTSv2 model globally...")
 from TTS.api import TTS
 global_tts_model = TTS("tts_models/multilingual/multi-dataset/xtts_v2", gpu=False)
 print("[Global Model Loader] Coqui XTTSv2 model loaded successfully!")
