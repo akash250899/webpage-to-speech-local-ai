@@ -11,7 +11,7 @@ from api.routes import router
 
 app = FastAPI(
     title="WebToSpeech AI Pipeline",
-    description="Native Python API for web scraping and text-to-speech audio synthesis on Apple Silicon.",
+    description="Native Python API for web scraping and text-to-speech audio synthesis",
     version="1.0.0"
 )
 
