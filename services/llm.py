@@ -57,8 +57,9 @@ async def process_text_for_speech(text: str, max_chunks: int = None, use_llm: bo
     glossary = load_glossary()
     glossary_json_string = json.dumps(glossary, indent=2)
 
-    raw_paragraphs = [p.strip() for p in text.split("\n\n") if p.strip()]
-    paragraphs = [p for p in raw_paragraphs if len(p) >= 15] or raw_paragraphs
+    raw_paragraphs = [p.strip() for p in re.split(r"\n+", text) if p.strip()]
+    paragraphs = [p for p in raw_paragraphs if len(p) >= 3] or raw_paragraphs
+
 
     if max_chunks is not None and len(paragraphs) > max_chunks:
         logger.debug("Limiting paragraphs | before=%s | max_chunks=%s", len(paragraphs), max_chunks)

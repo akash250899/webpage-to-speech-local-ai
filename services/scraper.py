@@ -36,7 +36,7 @@ def get_filename_from_url(url: str, voice: str = "female") -> str:
 
 async def scrape_article(url: str) -> str:
     """
-    Downloads and extracts clean article text using Trafilatura heuristic extraction.
+    Downloads and extracts full article text using Trafilatura with recall-oriented extraction.
     """
     logger.info("Fetching URL via Trafilatura | url=%s", url)
 
@@ -54,7 +54,13 @@ async def scrape_article(url: str) -> str:
 
     try:
         extracted_text = await loop.run_in_executor(
-            None, lambda: trafilatura.extract(downloaded, include_comments=False, include_tables=True)
+            None, lambda: trafilatura.extract(
+                downloaded,
+                favor_recall=True,
+                include_comments=False,
+                include_tables=True,
+                include_links=False
+            )
         )
     except Exception as e:
         logger.error("Trafilatura extraction exception | url=%s | error=%s", url, e)
@@ -64,5 +70,13 @@ async def scrape_article(url: str) -> str:
         logger.warning("Trafilatura extracted no text | url=%s", url)
         raise RuntimeError("No readable article text could be extracted from the specified URL")
 
-    logger.info("Extracted article content | url=%s | chars=%s", url, len(extracted_text))
-    return extracted_text
+    # Format extracted lines with double newlines (\n\n) for clean paragraph chunking
+    lines = [line.strip() for line in extracted_text.splitlines() if line.strip()]
+    formatted_text = "\n\n".join(lines)
+
+    logger.info(
+        "Extracted article content | url=%s | paragraphs=%s | chars=%s",
+        url, len(lines), len(formatted_text)
+    )
+    return formatted_text
+
