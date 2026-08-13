@@ -10,7 +10,7 @@ class RequestPayload(BaseModel):
     url: str
     voice: str = "female"
     max_chunks: Optional[int] = None
-    use_llm: bool = False
+    use_llm: bool = True
 
 
 # Alias for compatibility
