@@ -543,7 +543,7 @@
                     statusPill.innerText = 'Queued';
                     progressBar.style.width = '10%';
                 } else if (job.status === 'processing') {
-                    statusText.innerText = `Synthesizing speech with Coqui XTTSv2 (${job.voice.toUpperCase()} Voice)...`;
+                    statusText.innerText = `Synthesizing speech with Kokoro (${job.voice.toUpperCase()} Voice)...`;
                     statusPill.className = 'status-pill processing';
                     statusPill.innerText = 'Processing';
                     progressBar.style.width = `${Math.min(90, 20 + attempts * 5)}%`;

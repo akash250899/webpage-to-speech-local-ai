@@ -1,6 +1,6 @@
 # Local Web-to-Speech AI
 
-A production-grade, fully local API that scrapes web articles, cleans them using a local LLM, and synthesizes natural audio using XTTSv2.
+A production-grade, fully local API that scrapes web articles, cleans them using a local LLM, and synthesizes natural audio using Kokoro.
 
 ## Prerequisites
 * macOS
