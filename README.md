@@ -1,19 +1,37 @@
-# Local Web-to-Speech AI
+---
+title: Web-to-Speech AI
+emoji: 🔊
+colorFrom: blue
+colorTo: purple
+sdk: docker
+app_port: 8000
+pinned: false
+---
 
-A production-grade, fully local API that scrapes web articles, cleans them using a local LLM, and synthesizes natural audio using Kokoro.
+# Web-to-Speech AI
 
-## Prerequisites
-* macOS
-* Native Python 3.10+
-* [LM Studio](https://lmstudio.ai/) running locally with an 8B instruct model on port 1234.
-* `male_ref.wav` and `female_ref.wav` (3-5 second clear voice samples) in the root directory.
+Fully local API that scrapes web articles and synthesizes natural audio using Kokoro TTS.
 
-## Setup
-1. `python -m venv ai_voice_env`
-2. `source ai_voice_env/bin/activate`
-3. `pip install -r requirements.txt`
+## Features
+- Web scraping via BeautifulSoup (article extraction with noise filtering)
+- Kokoro TTS voice synthesis (`af_heart` female / `am_michael` male) at 24kHz WAV
+- FastAPI backend with async job queue
+- Static HTML/JS frontend at `http://localhost:8000`
 
-## Run
-`python main.py`
+## Local Setup
+```bash
+python -m venv ai_voice_env
+source ai_voice_env/bin/activate
+pip install -r requirements.txt
+python main.py
+```
 
-Navigate to `http://localhost:8000` to access the UI.
+## API
+| Endpoint | Method | Description |
+|---|---|---|
+| `/api/health` | GET | Health check |
+| `/scrape?url=...` | GET | Scrape article text |
+| `/process-speech?text=...&use_llm=false` | POST | Preprocess text for TTS |
+| `/generate` | POST | Queue full pipeline (JSON body: `url`, `voice`) |
+| `/status/{job_id}` | GET | Job status |
+| `/audio/{job_id}` | GET | Download generated WAV |
