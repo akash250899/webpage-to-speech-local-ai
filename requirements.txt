@@ -64,6 +64,7 @@ joblib==1.5.3
 jsonlines==1.2.0
 kiwisolver==1.4.7
 langcodes==3.5.1
+kokoro
 lazy-loader==0.5
 librosa==0.10.0
 llvmlite==0.43.0
@@ -134,7 +135,6 @@ torchaudio==2.8.0
 tqdm==4.70.0
 trainer==0.0.36
 transformers==4.33.0
-TTS==0.22.0
 typeguard==4.5.2
 typer==0.23.2
 typer-slim==0.23.2

@@ -1,108 +1,71 @@
 """
-XTTSv2 Speech Synthesis Engine
+Kokoro Speech Synthesis Engine
 """
 
 import asyncio
 import logging
 import os
 import re
-import shutil
 
-import torch
+import numpy as np
+import soundfile as sf
+from num2words import num2words
 from pydub import AudioSegment
+from kokoro import KPipeline
 
 logger = logging.getLogger(__name__)
-
-# Coqui TOS agreement
-os.environ["COQUI_TOS_AGREED"] = "1"
-
-# PyTorch 2.6+ checkpoint compatibility patch
-try:
-    from TTS.tts.configs.xtts_config import XttsConfig
-    torch.serialization.add_safe_globals([XttsConfig])
-except Exception:
-    logger.exception("Failed to register XttsConfig as a safe global for torch.load")
-
-_orig_torch_load = torch.load
-def _safe_torch_load(*args, **kwargs):
-    if "weights_only" not in kwargs:
-        kwargs["weights_only"] = False
-    return _orig_torch_load(*args, **kwargs)
-torch.load = _safe_torch_load
 
 # Ensure output directory exists
 OUTPUT_DIR = "output"
 os.makedirs(OUTPUT_DIR, exist_ok=True)
 
-# Global XTTSv2 model initialization
-logger.info("Loading Coqui XTTSv2 model globally...")
-from TTS.api import TTS
-global_tts_model = TTS("tts_models/multilingual/multi-dataset/xtts_v2", gpu=False)
-logger.info("Coqui XTTSv2 model loaded successfully!")
+# Global Kokoro TTS pipeline initialization (American English 'a')
+logger.info("Loading Kokoro TTS pipeline globally (lang_code='a')...")
+pipeline = KPipeline(lang_code='a')
+logger.info("Kokoro TTS pipeline loaded successfully!")
 
 
-def get_tts_model():
-    return global_tts_model
+def get_tts_pipeline():
+    return pipeline
 
 
-REF_DIR = "references"
-os.makedirs(REF_DIR, exist_ok=True)
+VOICE_MAPPING = {
+    "female": "af_heart",
+    "male": "am_michael",
+}
 
 
-def ensure_reference_audio(voice: str = "female") -> str:
+def resolve_voice(voice: str = "female") -> str:
+    if not voice:
+        return "af_heart"
+    v_lower = voice.lower()
+    return VOICE_MAPPING.get(v_lower, voice)
+
+
+def _synthesize_chunk_sync(text: str, voice_name: str, temp_file_path: str) -> bool:
     """
-    Ensures female voice is cloned from references/reference_voice.wav (female_ref.wav)
-    and male voice is cloned from references/male_sample_voice.mp3 (male_ref.wav).
+    Synchronous chunk synthesis worker using Kokoro pipeline.
+    Saves audio numpy array to temp_file_path using soundfile.write at 24000Hz.
     """
-    os.makedirs(REF_DIR, exist_ok=True)
+    try:
+        generator = pipeline(text, voice=voice_name, speed=1.2)
+        audio_segments = []
+        for gs, ps, audio in generator:
+            if audio is not None:
+                if hasattr(audio, "numpy"):
+                    audio = audio.numpy()
+                audio_segments.append(audio)
 
-    if voice and voice.lower() == "male":
-        target_wav = os.path.join(REF_DIR, "male_ref.wav")
-        mp3_source = None
-        for candidate in ["male_sample_voice.mp3", "male_sample_voive.mp3", "male_voice.mp3"]:
-            c_path = os.path.join(REF_DIR, candidate)
-            if os.path.exists(c_path):
-                mp3_source = c_path
-                break
-            elif os.path.exists(candidate):
-                mp3_source = candidate
-                break
+        if not audio_segments:
+            logger.warning("Kokoro pipeline produced no audio segments for text: %s", text[:30])
+            return False
 
-        if mp3_source:
-            try:
-                if not os.path.exists(target_wav) or os.path.getmtime(mp3_source) > os.path.getmtime(target_wav):
-                    import librosa, soundfile as sf
-                    logger.info("Converting reference audio | source=%s -> target=%s", mp3_source, target_wav)
-                    data, sr = librosa.load(mp3_source, sr=None)
-                    sf.write(target_wav, data, sr)
-            except Exception as e:
-                logger.exception("Librosa MP3 conversion failed | source=%s | error=%s", mp3_source, e)
-
-        if os.path.exists(target_wav):
-            logger.debug("Using male reference audio | path=%s", target_wav)
-            return target_wav
-        elif os.path.exists(os.path.join(REF_DIR, "reference_voice.wav")):
-            logger.debug("Using generic reference audio as male fallback | path=%s", os.path.join(REF_DIR, "reference_voice.wav"))
-            return os.path.join(REF_DIR, "reference_voice.wav")
-    else:
-        # Female Voice
-        fem_target = os.path.join(REF_DIR, "female_ref.wav")
-        ref_source = os.path.join(REF_DIR, "reference_voice.wav")
-
-        if os.path.exists(fem_target):
-            logger.debug("Using female reference audio | path=%s", fem_target)
-            return fem_target
-        elif os.path.exists(ref_source):
-            shutil.copy(ref_source, fem_target)
-            logger.info("Copied generic reference to female target | source=%s -> target=%s", ref_source, fem_target)
-            return fem_target
-
-    for fallback in [os.path.join(REF_DIR, "female_ref.wav"), os.path.join(REF_DIR, "reference_voice.wav"), "female_ref.wav", "reference_voice.wav"]:
-        if os.path.exists(fallback):
-            logger.debug("Using fallback reference audio | path=%s", fallback)
-            return fallback
-
-    raise FileNotFoundError(f"No reference audio file found in '{REF_DIR}' directory.")
+        full_audio = np.concatenate(audio_segments) if len(audio_segments) > 1 else audio_segments[0]
+        sf.write(temp_file_path, full_audio, 24000)
+        return True
+    except Exception as e:
+        logger.exception("Failed synthesizing chunk with Kokoro | text=%s | error=%s", text[:30], e)
+        return False
 
 
 async def generate_audio(
@@ -115,11 +78,7 @@ async def generate_audio(
         logger.warning("generate_audio called with no paragraphs")
         return ""
 
-    if reference_speaker_wav is None:
-        reference_speaker_wav = ensure_reference_audio(voice)
-
-    if not os.path.exists(reference_speaker_wav):
-        raise FileNotFoundError(f"Reference speaker audio file '{reference_speaker_wav}' not found.")
+    kokoro_voice = resolve_voice(voice)
 
     if not output_filename:
         output_filename = os.path.join(OUTPUT_DIR, f"audio_{os.urandom(4).hex()}.wav")
@@ -129,62 +88,60 @@ async def generate_audio(
         output_filename = os.path.join(OUTPUT_DIR, os.path.basename(output_filename))
 
     sentence_chunks = []
-    for p in paragraphs:
-        raw_sentences = re.split(r"(?<=[.!?])\s+", p.strip())
-        for s in raw_sentences:
+    for paragraph in paragraphs:
+        text_chunks = re.split(r"(?<=[.!?])\s+", paragraph.strip())
+        for s in text_chunks:
             s_clean = s.strip()
-            if not s_clean:
-                continue
-            if len(s_clean) > 220:
-                clauses = re.split(r"(?<=[,;—–])\s+", s_clean)
-                current_clause = ""
-                for c in clauses:
-                    if len(current_clause) + len(c) < 220:
-                        current_clause = f"{current_clause} {c}".strip()
-                    else:
-                        if current_clause:
-                            sentence_chunks.append(current_clause)
-                        current_clause = c
-                if current_clause:
-                    sentence_chunks.append(current_clause)
-            else:
+            if s_clean:
                 sentence_chunks.append(s_clean)
 
     logger.info(
-        "Audio generation started | voice=%s | reference=%s | sentence_chunks=%s | output=%s",
-        voice, reference_speaker_wav, len(sentence_chunks), output_filename
+        "Audio generation started | requested_voice=%s | kokoro_voice=%s | sentence_chunks=%s | output=%s",
+        voice, kokoro_voice, len(sentence_chunks), output_filename
     )
 
-    tts = get_tts_model()
     loop = asyncio.get_running_loop()
-
     temp_files = []
+
     for idx, sentence in enumerate(sentence_chunks):
+        # 1. Clean hidden unicode artifacts and strip leading/trailing spaces
+        clean_chunk = re.sub(r'[^\x00-\x7F]+', '', sentence)
+        clean_chunk = clean_chunk.strip()
+
+        # 2. Convert basic standalone numbers to spoken words
+        clean_chunk = re.sub(r'\b\d+\b', lambda m: num2words(int(m.group())), clean_chunk)
+
+        # 3. Skip micro-chunks that cause acoustic hallucinations
+        if len(clean_chunk) < 5:
+            continue
+
         temp_file = os.path.join(OUTPUT_DIR, f"temp_{idx}.wav")
-        logger.debug("Synthesizing chunk | idx=%s/%s | chars=%s", idx + 1, len(sentence_chunks), len(sentence))
-        await loop.run_in_executor(
+        logger.debug("Synthesizing chunk | idx=%s/%s | chars=%s", idx + 1, len(sentence_chunks), len(clean_chunk))
+
+        success = await loop.run_in_executor(
             None,
-            lambda s=sentence, tf=temp_file: tts.tts_to_file(
-                text=s,
-                speaker_wav=reference_speaker_wav,
-                language="en",
-                speed=1.2,
-                file_path=tf
-            )
+            _synthesize_chunk_sync,
+            clean_chunk,
+            kokoro_voice,
+            temp_file
         )
-        temp_files.append(temp_file)
+
+        if success:
+            temp_files.append(temp_file)
 
     combined_audio = AudioSegment.empty()
-    silence = AudioSegment.silent(duration=400)
 
-    for idx, temp_file in enumerate(temp_files):
-        if os.path.exists(temp_file):
-            segment = AudioSegment.from_wav(temp_file)
+    for idx, temp_file_path in enumerate(temp_files):
+        if os.path.exists(temp_file_path):
+            tts_chunk = AudioSegment.from_wav(temp_file_path)
+            dynamic_silence = AudioSegment.silent(duration=400, frame_rate=tts_chunk.frame_rate)
+
             if idx > 0:
-                combined_audio += silence
-            combined_audio += segment
+                combined_audio += dynamic_silence + tts_chunk
+            else:
+                combined_audio += tts_chunk
         else:
-            logger.warning("Temp chunk missing during assembly | idx=%s | path=%s", idx, temp_file)
+            logger.warning("Temp chunk missing during assembly | idx=%s | path=%s", idx, temp_file_path)
 
     combined_audio.export(output_filename, format="wav")
     logger.info(
