@@ -17,7 +17,6 @@ pinned: false
 [![FastAPI](https://img.shields.io/badge/FastAPI-0.128-009688?style=flat&logo=fastapi&logoColor=white)](https://fastapi.tiangolo.com/)
 [![Kokoro TTS](https://img.shields.io/badge/TTS-Kokoro--82M-FF6F00?style=flat)](https://huggingface.co/hexgrad/Kokoro-82M)
 [![Docker](https://img.shields.io/badge/Docker-Ready-2496ED?style=flat&logo=docker&logoColor=white)](https://www.docker.com/)
-[![License](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
 
 ---
 
@@ -36,9 +35,12 @@ pinned: false
   - [Endpoints Summary](#endpoints-summary)
   - [Request & Response Examples](#request--response-examples)
 - [Pronunciation Glossary & Customization](#-pronunciation-glossary--customization)
-- [Current Limitations](#-current-limitations)
-- [Future Scope & Roadmap](#-future-scope--roadmap)
-- [Troubleshooting & FAQ](#-troubleshooting--faq)
+- [CMS Integration Guide](#-cms-integration-guide)
+  - [Automated Publish Workflow](#automated-publish-workflow)
+  - [Webhook Implementation (Node / Python)](#webhook-implementation-node--python)
+  - [Embeddable Frontend Audio Player](#embeddable-frontend-audio-player)
+- [Limitations](#-limitations)
+- [Future Scope](#-future-scope)
 - [Acknowledgements & Tech Stack](#-acknowledgements--tech-stack)
 
 ---
@@ -388,70 +390,125 @@ dynamic_silence = AudioSegment.silent(duration=400, frame_rate=tts_chunk.frame_r
 
 ---
 
-## ⚠️ Current Limitations
+## 🔌 CMS Integration Guide
 
-While WebToSpeech AI is capable of handling most modern articles, users should be aware of current architectural limitations:
+WebToSpeech AI can be integrated into modern Content Management Systems (**WordPress, Ghost, Webflow, Strapi, Drupal, AEM, or Headless CMS**) to automatically generate and attach audio narrations whenever a new article or blog post is published.
 
-1. **Client-Side Rendered (SPA) Webpages**:
-   - The scraper uses Python's standard `requests` and `BeautifulSoup` libraries. Websites relying heavily on client-side JavaScript hydration (e.g., heavy Single-Page Applications in React, Angular, or Vue) or aggressive anti-bot protections (Cloudflare Turnstile, PerimeterX, or hard paywalls) may return empty content or challenge pages.
-2. **In-Memory State & Ephemeral Queue**:
-   - Job metadata and task queue references are stored in process memory (`jobs = {}`). If the FastAPI server is restarted or terminated, active queue items and job tracking records are cleared (though previously exported WAV files remain on disk in `output/`).
-3. **Single-Worker Sequential Concurrency**:
-   - To protect local system memory (preventing GPU out-of-memory errors and unified RAM exhaustion on high-resolution synthesis), the worker processes jobs one-by-one via FIFO order. Concurrent multi-user requests will wait in the queue.
-4. **Uncompressed WAV Output**:
-   - Synthesis generates uncompressed **24kHz 16-bit PCM WAV** files. While audio fidelity is maximized, file sizes are larger than compressed formats (~5–10 MB per 5 minutes of speech).
-5. **Language Model Specialization**:
-   - The default Kokoro pipeline is initialized for American English (`lang_code='a'`). Non-English web articles will be spoken with an English phonemizer accent unless the pipeline language code is adjusted.
-6. **External LLM Prerequisite for LLM Mode**:
-   - The optional `use_llm` parameter assumes an OpenAI-compatible API running locally at `http://localhost:1234`. If absent, it logs a warning and falls back to deterministic rule replacement.
+### Automated Publish Workflow
+
+```mermaid
+sequenceDiagram
+    autonumber
+    actor Editor
+    participant CMS as CMS (WordPress / Strapi / Ghost)
+    participant Pipeline as WebToSpeech AI Pipeline
+    participant Storage as Media Storage / S3 / Local
+    participant Reader as Website Visitor
+
+    Editor->>CMS: Publish New Article
+    CMS->>Pipeline: Webhook Trigger (POST /generate with Article URL)
+    Pipeline-->>CMS: Returns job_id (queued)
+    Pipeline->>Pipeline: Scrape, Clean DOM, Synthesize 24kHz Audio
+    Pipeline->>Storage: Store Generated WAV File
+    CMS->>Pipeline: Poll /status/{job_id} (or Webhook Callback)
+    CMS->>CMS: Update Post Meta (audio_url = /audio/{job_id})
+    Reader->>CMS: Visit Article Page
+    CMS->>Reader: Render Embedded "Listen to Article" Player
+```
+
+### 1. Webhook Implementation (Node.js / Express Example)
+Trigger narration generation automatically from your CMS publish webhook:
+
+```javascript
+// Webhook receiver for CMS "post.published" event
+app.post("/webhooks/cms-publish", async (req, res) => {
+  const { article_url, post_id, preferred_voice } = req.body;
+
+  // 1. Enqueue speech generation
+  const response = await fetch("http://localhost:8000/generate", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+      url: article_url,
+      voice: preferred_voice || "female"
+    })
+  });
+
+  const { job_id } = await response.json();
+  res.status(202).json({ status: "Audio generation queued", job_id });
+
+  // 2. Poll until completed (or run as background worker)
+  pollAndAttachAudio(job_id, post_id);
+});
+
+async function pollAndAttachAudio(jobId, postId) {
+  const interval = setInterval(async () => {
+    const res = await fetch(`http://localhost:8000/status/${jobId}`);
+    const data = await res.json();
+
+    if (data.status === "completed") {
+      clearInterval(interval);
+      // Update CMS article with audio URL
+      await updateCmsPostMeta(postId, {
+        audio_url: `http://localhost:8000/audio/${jobId}`,
+        audio_duration: data.character_count
+      });
+    } else if (data.status === "failed") {
+      clearInterval(interval);
+      console.error("Audio generation failed:", data.error);
+    }
+  }, 3000);
+}
+```
+
+### 2. Embeddable Frontend Audio Player
+Drop this compact, accessible player snippet into your CMS article template (e.g., WordPress `single.php`, Ghost `post.hbs`, or Next.js `ArticleLayout.tsx`):
+
+```html
+<!-- "Listen to this Article" Banner Component -->
+<div class="article-audio-player" style="display: flex; align-items: center; gap: 1rem; background: #0f172a; border: 1px solid #1e293b; padding: 0.85rem 1.25rem; border-radius: 0.75rem; margin: 1.5rem 0; color: #f8fafc;">
+  <div style="display: flex; align-items: center; gap: 0.5rem; font-weight: 600; font-size: 0.9rem; white-space: nowrap;">
+    <span>🔊</span>
+    <span>Listen to Article</span>
+  </div>
+  <audio controls preload="none" style="flex: 1; height: 36px;">
+    <source src="http://localhost:8000/audio/{{job_id}}" type="audio/wav">
+    Your browser does not support audio playback.
+  </audio>
+  <a href="http://localhost:8000/audio/{{job_id}}" download style="color: #38bdf8; text-decoration: none; font-size: 0.85rem; font-weight: 500;">
+    ⬇️ Download
+  </a>
+</div>
+```
+
+### CMS Integration Benefits
+- **Zero Ongoing API Fees**: Eliminate recurring monthly billing from third-party narration SaaS providers.
+- **Enhanced Accessibility (a11y)**: Provide automatic WCAG-compliant audio alternatives for visually impaired readers.
+- **Increased Dwell Time**: Visitors who listen to audio narrations spend 2x to 3x longer on your content pages.
 
 ---
 
-## 🗺️ Future Scope & Roadmap
+## ⚠️ Limitations
 
-The following enhancements and extensions are planned for upcoming releases:
-
-- [ ] **Headless Browser Scraping**:
-  - Integrate **Playwright** / **Crawl4AI** as an optional scraper backend to support client-rendered SPAs, lazy-loaded articles, and complex dynamic DOM structures.
-- [ ] **Audio Compression & Real-Time Streaming**:
-  - Add native support for compressed audio formats (**MP3**, **AAC**, and **Opus**) using FFmpeg.
-  - Implement chunk-by-chunk audio streaming via **Server-Sent Events (SSE)** or **WebSockets** so playback starts instantly before the full article is synthesized.
-- [ ] **Multi-Language & Dialect Auto-Routing**:
-  - Automatically detect the language of scraped text and dynamically select the appropriate Kokoro language pipeline (`en-us`, `en-gb`, `es`, `fr`, `ja`, `zh`) and native speaker voice.
-- [ ] **Persistent State & Database Backend**:
-  - Migrate job management from in-memory dictionaries to **SQLite** / **PostgreSQL** with **Redis/Celery** task queuing for production-scale resilience.
-- [ ] **Interactive Web Reader with Synchronized Word Highlighting**:
-  - Generate word-level and sentence-level timestamp metadata (`.vtt` / `.srt`) to highlight the active paragraph on screen in sync with the audio player.
-- [ ] **Custom Voice Cloning & Timbre Blending**:
-  - Allow uploading custom reference voice audio samples to blend speaker embeddings and create custom narrators.
-- [ ] **Browser Extension ("One-Click Listen")**:
-  - Build a Chrome / Firefox extension that extracts the current browser tab's clean DOM and sends it directly to your local WebToSpeech instance with a single keyboard shortcut.
-- [ ] **Automated Podcast & RSS Feeds**:
-  - Generate a local RSS feed from completed audio files, enabling users to subscribe and listen to scraped articles in mobile podcast apps (Apple Podcasts, Pocket Casts, Overcast).
+- **Client-Rendered SPAs**: Scrapes static HTML via BeautifulSoup; dynamic client-side JS apps (React/Vue SPAs) or heavy paywalls/CAPTCHAs may require pre-rendered HTML.
+- **In-Memory State**: Job tracking and queue entries reside in process memory and reset upon server restart (saved WAV files persist in `output/`).
+- **Sequential Queue**: Processes synthesis tasks one at a time via FIFO queue to prevent GPU/RAM memory spikes.
+- **Uncompressed WAV Output**: Produces studio-quality 24kHz WAV; output is not pre-compressed to MP3/Opus.
+- **English-Focused Synthesis**: Model pipeline is currently configured for American English (`lang_code='a'`).
+- **External LLM Requirement**: Optional LLM mode requires a local OpenAI-compatible endpoint (e.g., LM Studio on port 1234).
 
 ---
 
-## ❓ Troubleshooting & FAQ
+## 🗺️ Future Scope
 
-### 1. `FileNotFoundError: [Errno 2] No such file or directory: 'ffmpeg'`
-- **Cause**: PyDub requires the `ffmpeg` binary installed on the host system PATH to concatenate and pad audio segments.
-- **Solution**: Install FFmpeg using your system package manager:
-  - macOS: `brew install ffmpeg`
-  - Ubuntu/Debian: `sudo apt install ffmpeg`
-
-### 2. Why is the first request taking longer to synthesize?
-- **Cause**: On the very first run, Kokoro automatically downloads the required voice and model weight safetensors (`Kokoro-82M`) into your HuggingFace cache directory.
-- **Solution**: Subsequent runs will load instantly from local disk cache.
-
-### 3. The audio contains strange pauses or skips short sentences.
-- **Cause**: Chunks shorter than 5 characters are filtered out to avoid acoustic hallucinations common in neural phonemizers.
-- **Solution**: You can adjust this filter threshold in [services/tts.py](file:///Users/akashverma/AI/Text_to_Speech/services/tts.py#L115).
-
-### 4. How can I adjust the speech speed?
-- Modify the `speed` parameter in `services/tts.py` (default is `speed=1.2`):
-  ```python
-  generator = pipeline(text, voice=voice_name, speed=1.0) # For normal speed
-  ```
+- **Headless Browser Scraping**: Playwright/Crawl4AI support for JavaScript-heavy and paywalled sites.
+- **Audio Compression & Real-Time Streaming**: Native MP3/Opus encoding and real-time chunk streaming (SSE/WebSockets).
+- **Multilingual Support**: Language auto-detection and multi-voice routing (Spanish, French, Japanese, etc.).
+- **Persistent Queue & DB**: SQLite/PostgreSQL job persistence and Redis/Celery background task execution.
+- **Synchronized Transcripts**: Word/sentence timestamp generation (`.vtt`) with on-page karaoke-style reading.
+- **Voice Cloning**: Custom reference voice cloning and speaker timbre blending.
+- **Browser Extension**: One-click "Listen to Article" extension for Chrome, Safari, and Firefox.
+- **Podcast RSS Feeds**: Automatic RSS feed generation to sync narrated articles directly to podcast apps.
 
 ---
 
@@ -462,9 +519,3 @@ The following enhancements and extensions are planned for upcoming releases:
 - **[BeautifulSoup4](https://www.crummy.com/software/BeautifulSoup/)** — Resilient HTML parsing and DOM traversal.
 - **[PyDub](http://pydub.com/)** & **[soundfile](https://pysoundfile.readthedocs.io/)** — Professional audio manipulation and silence assembly.
 - **[num2words](https://github.com/savoirfairelinux/num2words)** — Multilingual number-to-words converter.
-
----
-
-## 📄 License
-
-This project is licensed under the [MIT License](LICENSE).
