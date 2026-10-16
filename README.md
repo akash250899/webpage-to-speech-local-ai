@@ -1,13 +1,3 @@
----
-title: Web-to-Speech AI
-emoji: 🔊
-colorFrom: blue
-colorTo: purple
-sdk: docker
-app_port: 8000
-pinned: false
----
-
 # 🔊 WebToSpeech AI — Local Article Voice Studio
 
 > **Transform any web article into natural, studio-quality speech locally on your machine.**  
