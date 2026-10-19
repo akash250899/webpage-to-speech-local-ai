@@ -13,6 +13,7 @@ __pycache__/
 # Audio Outputs (Keep reference files in references/, ignore generated ones)
 output/*.wav
 output/*.mp3
+!output/sample_output.wav
 !references/*.wav
 !references/*.mp3
 

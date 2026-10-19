@@ -15,7 +15,7 @@
 - [Overview](#-overview)
 - [Key Features](#-key-features)
 - [System Architecture](#-system-architecture)
-- [Project Structure](#-project-structure)
+- [Sample Audio Output](#-sample-audio-output)
 - [Prerequisites](#-prerequisites)
 - [Installation & Setup](#-installation--setup)
   - [Method 1: Local Native Setup (Recommended)](#method-1-local-native-setup-recommended)
@@ -105,31 +105,18 @@ flowchart TD
 
 ---
 
-## 📁 Project Structure
+## 🎧 Sample Audio Output
 
-```plaintext
-Text_to_Speech/
-├── api/
-│   ├── models.py           # Pydantic request & response schemas
-│   └── routes.py           # FastAPI router endpoints & background worker loop
-├── core/
-│   ├── glossary.json       # Customizable acronym/pronunciation dictionary
-│   ├── logging.py          # Centralized logging format & file output config
-│   └── state.py            # Global in-memory job state & lazy asyncio task queue
-├── output/                 # Generated WAV files and temporary synthesis chunks
-├── services/
-│   ├── llm.py              # Text normalization & optional LM Studio integration
-│   ├── scraper.py          # BeautifulSoup article extractor & noise filter
-│   └── tts.py              # Kokoro TTS engine, chunk synthesis & PyDub assembly
-├── static/
-│   └── index.html          # Responsive glassmorphism web UI & glossary manager
-├── .gitignore              # Git ignore rules for environments, outputs, and cache
-├── Dockerfile              # Containerization definition with ffmpeg & libsndfile
-├── main.py                 # Application entry point, CORS config, and startup hook
-├── architecture.md         # High-level architecture summary
-├── requirements.txt        # Pinned Python package dependencies
-└── README.md               # Project documentation
-```
+Listen to a full article narration synthesized using Kokoro TTS (24kHz WAV with 400ms inter-sentence pacing):
+
+- **Sample File**: [`sample_output.wav`](output/sample_output.wav)
+- **Audio Specifications**: 24,000 Hz, 16-bit PCM WAV, Female Voice (`af_heart`)
+
+<audio controls src="output/sample_output.wav">
+  Your browser does not support the audio element. <a href="output/sample_output.wav">Download sample_output.wav</a>
+</audio>
+
+> 💡 *Click play above or download [`sample_output.wav`](output/sample_output.wav) to experience the natural intonation, cadence, and pause pacing.*
 
 ---
 
